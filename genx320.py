@@ -2,7 +2,7 @@
 # bias: changes in sensitivity to change in light (diff on (19-50) vs diff off (26-60))
 # find command to set event rate control
 # digital event mask: cuts out hot pixels to lower bandwidth
-# - see which pxiel has abnromally high number within a 20ms period
+# - see which pixel has abnormally high number within a 20ms period
 # genx320 -> can use label data to recognize people?
 
 # GENX320 event mode: measure event counts in CONSECUTIVE 20 ms windows.
@@ -33,12 +33,12 @@ import time
 from ulab import numpy as np
 
 # ---------------- settings ----------------
-TEST_NAME  = "test1"     # label for this run (printed in the summary)
-WINDOW_US  = 20_000      # window length: 20 ms
-N_WINDOWS  = 1000         # consecutive windows to measure (250 = 5 s)
-READ_RES   = 4096        # events per driver read (power of two, 1024-65536)
+TEST_NAME = "test1"     # label for this run (printed in the summary)
+WINDOW_US = 20_000      # window length: 20 ms
+N_WINDOWS = 250         # consecutive windows to measure (250 = 5 s)
+READ_RES = 4096        # events per driver read (power of two, 1024-65536)
 MAX_EVENTS = 20000       # storage limit per window (12 bytes each -> 240 KB)
-LIVE_VIEW  = True        # draw windows in the Frame Buffer while measuring
+LIVE_VIEW = True        # draw windows in the Frame Buffer while measuring
 LIVE_EVERY = 5           # draw every 5th window (10 pictures/s) to keep the loop fast
 SAVE_FILES = True        # write window_log.csv and peak_window_20ms.bin
 # ------------------------------------------
@@ -46,16 +46,17 @@ SAVE_FILES = True        # write window_log.csv and peak_window_20ms.bin
 gc.collect()  # start with as much free memory as possible
 events = np.zeros((READ_RES, 6), dtype=np.uint16)     # one driver read
 window = np.zeros((MAX_EVENTS, 6), dtype=np.uint16)   # current window storage
-peak   = np.zeros((MAX_EVENTS, 6), dtype=np.uint16)   # copy of the peak window
+peak = np.zeros((MAX_EVENTS, 6), dtype=np.uint16)   # copy of the peak window
 img = image.Image(320, 320, image.GRAYSCALE) if LIVE_VIEW else None
 
 csi0 = csi.CSI(cid=csi.GENX320)
 csi0.reset()
 csi0.ioctl(csi.IOCTL_GENX320_SET_MODE, csi.GENX320_MODE_EVENT, READ_RES)
 csi0.framebuffers(10)  # queue reads instead of dropping them
+# csi0.ioctl(csi.IOCTL_GENX320_SET_BIAS, csi.GENX320_BIAS_DIFF_OFF, 100)
 csi0.ioctl(csi.IOCTL_GENX320_SET_AFK, 0)  # anti-flicker OFF (all events kept)
-csi0.ioctl(csi.IOCTL_GENX320_SET_BIAS, csi.GENX320_BIAS_DIFF_ON, 50)
-# to turn it back on: csi0.ioctl(csi.IOCTL_GENX320_SET_AFK, 1, 90, 150)
+# to turn it back on:
+# csi0.ioctl(csi.IOCTL_GENX320_SET_AFK, 1, 90, 150)
 
 
 def t_us(row):
@@ -117,29 +118,32 @@ def close_window():
 
 
 print("Measuring %d consecutive windows of %d ms (%s)..." % (N_WINDOWS, WINDOW_US // 1000, TEST_NAME))
-time.sleep_ms(500)  # let the sensor settle
+csi0.ioctl(csi.IOCTL_GENX320_SET_MODE, csi.GENX320_MODE_EVENT, READ_RES)
+# time.sleep_ms(500)  # let the sensor settle
 
 while win_idx < N_WINDOWS:
-    n = csi0.ioctl(csi.IOCTL_GENX320_READ_EVENTS, events)
-    if n == 0:
+    num_events = csi0.ioctl(csi.IOCTL_GENX320_READ_EVENTS, events)
+    if num_events == 0:
         continue
     if t0 is None:
         t0 = t_us(events[0])
         win_end = t0 + WINDOW_US
 
-    i = 0
-    while i < n and win_idx < N_WINDOWS:
-        # events[i:k] belong to the current window
-        k = first_index_at_or_after(events, i, n, win_end)
-        m = k - i
-        if m > 0:
-            c = min(m, MAX_EVENTS - stored)
+    curr_win_idx = 0
+    if curr_win_idx < num_events:
+        print(num_events)
+    while curr_win_idx < num_events and win_idx < N_WINDOWS:
+        # events[curr_win_idx:least_larger_winend] belong to the current window
+        least_geq_winend = first_index_at_or_after(events, curr_win_idx, num_events, win_end)
+        cur_win_ct = least_geq_winend - curr_win_idx
+        if cur_win_ct > 0:
+            c = min(cur_win_ct, MAX_EVENTS - stored)
             if c > 0:
-                window[stored:stored + c, :] = events[i:i + c, :]
+                window[stored:stored + c, :] = events[curr_win_idx:curr_win_idx + c, :]
                 stored += c
-            total += m          # count every event, stored or not
-        i = k
-        if k < n:
+            total += cur_win_ct          # count every event, stored or not
+        curr_win_idx = least_geq_winend
+        if least_geq_winend < num_events:
             # an event at/after win_end exists -> the current window is complete.
             # Repeats for every empty 20 ms interval up to that event.
             close_window()
