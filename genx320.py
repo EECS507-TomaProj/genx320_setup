@@ -35,7 +35,7 @@ from ulab import numpy as np
 # ---------------- settings ----------------
 TEST_NAME = "test1"     # label for this run (printed in the summary)
 WINDOW_US = 20_000      # window length: 20 ms
-N_WINDOWS = 250         # consecutive windows to measure (250 = 5 s)
+N_WINDOWS = 1000         # consecutive windows to measure (250 = 5 s)
 READ_RES = 4096        # events per driver read (power of two, 1024-65536)
 MAX_EVENTS = 20000       # storage limit per window (12 bytes each -> 240 KB)
 LIVE_VIEW = True        # draw windows in the Frame Buffer while measuring
